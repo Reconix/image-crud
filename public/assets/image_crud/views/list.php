@@ -95,7 +95,6 @@ function saveTitle(data_id, data_title)
 			});
 }
 
-window.onload = createUploader;
 
 </script>
 <?php if(!$unset_upload){ ?><!-- <div id="file-uploader-demo1" class="floatL upload-button-container"></div>

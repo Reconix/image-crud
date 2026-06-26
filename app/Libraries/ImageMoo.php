@@ -1,4 +1,8 @@
-<?php if (!defined('BASEPATH')) exit('No direct script access allowed');
+<?php
+
+namespace App\Libraries;
+
+defined('APPPATH') || exit('No direct script access allowed');
 /*
  * Image_Moo library
  *
@@ -11,12 +15,12 @@
  * @email		matthew@dps.uk.com
  *
  * @file		image_moo.php
- * @version		1.1.6
- * @date		2014 Feb 5
+ * @version		1.1.7
+ * @date		2022 Jun 21
  *
  * Copyright (c) 2011-2014 Matthew (Mat-Moo.com) Augier
  *
- * Requires PHP 5 and GD2!
+ * Requires PHP 5+ and GD2!
  *
  * Example usage
  *    $this->image_moo->load("file")->resize(64,40)->save("thumb")->resize(640,480)->save("medium");
@@ -27,14 +31,14 @@
  *
  * image manipulation functions
  * -----------------------------------------------------------------------------
- * load($x) - Loads an image file specified by $x - JPG, PNG, GIF supported
+ * load($x) - Loads an image file specified by $x - JPG, PNG, GIF, WEBP supported
  * load_temp() - Takes a cropped/altered image and makes it the main image to work with.
- * save($x) - Saved the manipulated image (if applicable) to file $x - JPG, PNG, GIF supported
+ * save($x) - Saved the manipulated image (if applicable) to file $x - JPG, PNG, GIF, WEBP supported
  * get_data_stream($filename="") - Return the image as a stream so that it can be sent as source data to the output
  * save_pa($prepend="", $append="", $overwrite=FALSE) - Saves using the original image name but with prepend and append text, e.g. load('moo.jpg')->save_pa('pre_','_app') would save as filename pre_moo_app.jpg
- * save_dynamic($filename="") - Saves as a stream output, use filename to return png/jpg/gif etc., default is jpeg
- * resize($x,$y=FALSE,$pad=FALSE) - Proportioanlly resize original image using the bounds $x and $y (if y is false x size is used), if padding is set return image is as defined centralised using BG colour
- * resize_crop($x,$y) - Proportioanlly resize original image using the bounds $x and $y but cropped to fill dimensions
+ * save_dynamic($filename="") - Saves as a stream output, use filename to return png/jpg/gif/webp etc., default is jpeg
+ * resize($x,$y=FALSE,$pad=FALSE) - Proportionally resize original image using the bounds $x and $y (if y is false x size is used), if padding is set return image is as defined centralised using BG colour
+ * resize_crop($x,$y) - Proportionally resize original image using the bounds $x and $y but cropped to fill dimensions
  * stretch($x,$y) - Take the original image and stretch it to fill new dimensions $x $y
  * crop($x1,$y1,$x2,$y2) - Crop the original image using Top left, $x1,$y1 to bottom right $x2,y2. New image size =$x2-x1 x $y2-y1
  * rotate($angle) - Rotates the work image by X degrees, normally 90,180,270 can be any angle.Excess filled with background colour
@@ -52,7 +56,7 @@
  * allow_scale_up($onoff = FALSE) - When using resize, setting this to tru will allow small images to increase in size, otherwise they do not get resized
  * real_filesize() - returns the filesize of the image in bytes etc.
  * display_errors($open = '<p>', $close = '</p>') - Display errors as Ci standard style
- * set_jpeg_quality($x) - quality to wrte jpeg files in for save, default 75 (1-100)
+ * set_jpeg_quality($x) - quality to write jpeg/webp files in for save, default 75 (1-100)
  * set_watermark_transparency($x) - the opacity of the watermark 1-100, 1-just about see, 100=solid
  * check_gd() - Run to see if you server can use this library
  * clear_temp() - Call to clear the temp changes using the master image again
@@ -65,11 +69,12 @@
  * TO DO
  *
  * THANKS
- * Matjaž for poiting out the save_pa bug (should of tested it!)
+ * Matjaz for pointing out the save_pa bug (should of tested it!)
  * Cahva for posting yet another bug in the save_pa (Man I can be silly sometimes!)
  * Cole spotting the resize flaw and providing a fix
  * Nuno Mira for suggesting the new width/new size on teh ci forums
  * HugoSolar for transparent rotate
+ * EbbenF/Locally.com for webp support
  *
  */
 
@@ -106,7 +111,7 @@ class Image_moo
 	// create stuff here as needed
 	//----------------------------------------------------------------------------------------------------------
 	{
-		log_message('debug', "Image Moo Class Initialized");
+		// log_message('debug', "Image Moo Class Initialized");
 		if ($this->jpeg_ignore_warnings) $this->ignore_jpeg_warnings();
 		if ($this->can_stretch) $this->can_stretch(TRUE);
 	}
@@ -201,13 +206,22 @@ class Image_moo
 		}
 	}
 
+	//----------------------------------------------------------------------------------------------------------
+	// checks that we have an GD image loaded
+	//---
+
+	private function is_gd_image( $image ) {
+
+		return ( (is_resource($image) && get_resource_type( $image ) === 'gd') || (is_object( $image ) && $image instanceof GdImage) );
+	}
+
 	private function _check_image()
 	//----------------------------------------------------------------------------------------------------------
 	// checks that we have an image loaded
 	//----------------------------------------------------------------------------------------------------------
 	{
 		// generic check
-		if (!is_resource($this->main_image))
+		if (!$this->is_gd_image($this->main_image))
 		{
 			$this->set_error("No main image loaded!");
 			return FALSE;
@@ -249,6 +263,9 @@ class Image_moo
 				break;
 			case "PNG" :
 				imagepng($this->temp_image);
+				break;
+			case "WEBP":
+				imagewebp($this->temp_image);
 				break;
 			default:
 				$this->set_error('Extension not recognised! Must be jpg/png/gif');
@@ -300,6 +317,11 @@ class Image_moo
 			case "PNG" :
 				header("Content-type: image/png");
 				imagepng($this->temp_image);
+				return $this;
+				break;
+			case "WEBP":
+				header("Content-type: image/webp");
+				imagewebp($this->temp_image, NULL, $this->jpeg_quality);
 				return $this;
 				break;
 		}
@@ -365,6 +387,10 @@ class Image_moo
 				imagepng($this->temp_image, $filename);
 				return $this;
 				break;
+			case "WEBP" :
+				imagewebp($this->temp_image, $filename, $this->jpeg_quality);
+				return $this;
+				break;
 		}
 
 		// invalid filetype?!
@@ -401,9 +427,12 @@ class Image_moo
 				case "image/png" :
 	 		        return @imagecreatefrompng($filename);
 					break;
+				case "image/webp" :
+					return @imagecreatefromwebp($filename);
+					break;
 			}
 		}
-		catch (Exception $e)
+		catch (\Exception $e)
 		{
 			$this->set_error('Exception loading '.$filename.' - '.$e->getMessage());
 		}
@@ -421,7 +450,7 @@ class Image_moo
 		// validate we loaded a main image
 		if (!$this->_check_image()) return $this;
 
-		if (!is_resource($this->temp_image))
+		if (!$this->is_gd_image($this->temp_image))
 		{
 			$this->set_error("No temp image created!");
 			return FALSE;
@@ -478,10 +507,10 @@ class Image_moo
 	// Load an image, public function
 	//----------------------------------------------------------------------------------------------------------
 	{
-		if(is_resource($this->watermark_image)) imagedestroy($this->watermark_image);
+		if($this->is_gd_image($this->watermark_image)) imagedestroy($this->watermark_image);
 		$this->watermark_image = $this->_load_image($filename);
 
-		if(is_resource($this->watermark_image))
+		if($this->is_gd_image($this->watermark_image))
 		{
 			$this->watermark_method = 1;
 			if(($transparent_x <> NULL) AND ($transparent_y <> NULL))
@@ -561,13 +590,13 @@ class Image_moo
 	// If temp image is empty, e.g. not resized or done anything then just copy main image
 	//----------------------------------------------------------------------------------------------------------
 	{
-		if (!is_resource($this->temp_image))
+		if (!$this->is_gd_image($this->temp_image))
 		{
 			// create a temp based on new dimensions
 			$this->temp_image = imagecreatetruecolor($this->width, $this->height);
 
 			// check it
-			if(!is_resource($this->temp_image))
+			if(!$this->is_gd_image($this->temp_image))
 			{
 				$this->set_error('Unable to create temp image sized '.$this->width.' x '.$this->height);
 				return FALSE;
@@ -584,9 +613,9 @@ class Image_moo
 	// clear everything!
 	//----------------------------------------------------------------------------------------------------------
 	{
-		if(is_resource($this->main_image)) imagedestroy($this->main_image);
-		if(is_resource($this->watermark_image)) imagedestroy($this->watermark_image);
-		if(is_resource($this->temp_image)) imagedestroy($this->temp_image);
+		if($this->is_gd_image($this->main_image)) imagedestroy($this->main_image);
+		if($this->is_gd_image($this->watermark_image)) imagedestroy($this->watermark_image);
+		if($this->is_gd_image($this->temp_image)) imagedestroy($this->temp_image);
 		return $this;
 	}
 
@@ -595,7 +624,7 @@ class Image_moo
 	// you may want to revert back to teh original image to work on, e.g. watermark, this clears temp
 	//----------------------------------------------------------------------------------------------------------
 	{
-		if(is_resource($this->temp_image)) imagedestroy($this->temp_image);
+		if($this->is_gd_image($this->temp_image)) imagedestroy($this->temp_image);
 		return $this;
 	}
 
@@ -610,11 +639,14 @@ class Image_moo
 		// clear temp image
 		$this->clear_temp();
 
-		// create a temp based on new dimensions
-		$this->temp_image = imagecreatetruecolor($mw, $mh);
+		if( $this->width > $mw || $this->height > $mh || $this->can_stretch)
+			// create a temp based on new dimensions
+			$this->temp_image = imagecreatetruecolor($mw, $mh);
+		else
+			return $this;
 
 		// check it
-		if(!is_resource($this->temp_image))
+		if(!$this->is_gd_image($this->temp_image))
 		{
 			$this->set_error('Unable to create temp image sized '.$mw.' x '.$mh);
 			return $this;
@@ -646,7 +678,7 @@ class Image_moo
 			$sy = ($this->height - $calc_height) / 2;
 			$sy2 = $calc_height;
 		}
-		
+
 		//image transparency preserved
 		imagealphablending( $this->temp_image, false );
 		imagesavealpha( $this->temp_image, true );
@@ -711,7 +743,7 @@ class Image_moo
 		$this->temp_image = imagecreatetruecolor($tx,$ty);
 
 		// check it
-		if(!is_resource($this->temp_image))
+		if(!$this->is_gd_image($this->temp_image))
 		{
 			$this->set_error('Unable to create temp image sized '.$tx.' x '.$ty);
 			return $this;
@@ -768,7 +800,7 @@ class Image_moo
 		$this->temp_image = imagecreatetruecolor($mw, $mh);
 
 		// check it
-		if(!is_resource($this->temp_image))
+		if(!$this->is_gd_image($this->temp_image))
 		{
 			$this->set_error('Unable to create temp image sized '.$mh.' x '.$mw);
 			return $this;
@@ -805,9 +837,9 @@ class Image_moo
 		$this->temp_image = imagecreatetruecolor($x2-$x1, $y2-$y1);
 
 		// check it
-		if(!is_resource($this->temp_image))
+		if(!$this->is_gd_image($this->temp_image))
 		{
-			$this->set_error('Unable to create temp image sized '.$x2-$x1.' x '.$y2-$y1);
+			$this->set_error('Unable to create temp image sized '.($x2-$x1).' x '.($y2-$y1));
 			return $this;
 		}
 
@@ -915,7 +947,7 @@ class Image_moo
 		$bl = $bbox[1];
 
 		// use this to create watermark image
-		if(is_resource($this->watermark_image)) imagedestroy($this->watermark_image);
+		if($this->is_gd_image($this->watermark_image)) imagedestroy($this->watermark_image);
 		$this->watermark_image = imagecreatetruecolor($bw, $bh);
 
 		// set colours
@@ -952,7 +984,7 @@ class Image_moo
 		if (!$this->_check_image()) return $this;
 
 		// validate we have a watermark
-		if(!is_resource($this->watermark_image))
+		if(!$this->is_gd_image($this->watermark_image))
 		{
 			$this->set_error("Can't watermark image, no watermark loaded/created");
 			return $this;
@@ -1176,7 +1208,7 @@ class Image_moo
 		$bu_image = imagecreatetruecolor($sx, $sy);
 
 		// check it
-		if(!is_resource($bu_image))
+		if(!$this->is_gd_image($bu_image))
 		{
 			$this->set_error('Unable to create shadow temp image sized '.$this->width.' x '.$this->height);
 			return FALSE;
@@ -1374,7 +1406,7 @@ class Image_moo
 		}
 
 		// is there a temp image?
-		if ( ! is_resource($this->temp_image))
+		if ( ! $this->is_gd_image($this->temp_image))
 		{
 			$this->new_height = $this->height;
 			$this->new_width = $this->width;

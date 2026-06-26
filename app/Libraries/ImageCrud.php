@@ -1,25 +1,15 @@
-<?php if (!defined('BASEPATH')) exit('No direct script access allowed');
-/**
- * Image CRUD
- *
- * A Codeigniter library that creates an instant photo gallery CRUD automatically with just few lines of code.
- *
- * Copyright (C) 2011 through 2012  John Skoumbourdis.
- *
- * LICENSE
- *
- * Image CRUD is released with dual licensing, using the GPL v3 (license-gpl3.txt) and the MIT license (license-mit.txt).
- * You don't have to do anything special to choose one license or the other and you don't have to notify anyone which license you are using.
- * Please see the corresponding license file for details of these licenses.
- * You are free to use, modify and distribute this software, but all copyright information must remain.
- *
- * @package    	image CRUD
- * @copyright  	Copyright (c) 2011 through 2012, John Skoumbourdis
- * @license    	https://github.com/scoumbourdis/image-crud/blob/master/license-image-crud.txt
- * @version    	0.5
- * @author     	John Skoumbourdis <scoumbourdisj@gmail.com>
- */
-class image_CRUD {
+<?php
+
+namespace App\Libraries;
+
+defined('APPPATH') || exit('No direct script access allowed');
+
+use CodeIgniter\Database\BaseConnection;
+use Config\Database;
+
+require_once __DIR__ . '/ImageMoo.php';
+
+class ImageCrud {
 
 	protected $table_name = null;
 	protected $priority_field = null;
@@ -29,7 +19,7 @@ class image_CRUD {
 	protected $subject = 'Record';
 	protected $image_path = '';
 	protected $primary_key = 'id';
-	protected $ci = null;
+	protected $db = null;
 	protected $thumbnail_prefix = 'thumb__';
 	protected $views_as_string = '';
 	protected $css_files = array();
@@ -46,6 +36,8 @@ class image_CRUD {
 	protected $lang_strings = array();
 	protected $default_language_path = 'assets/image_crud/languages';
 
+	protected $where = array();
+
 	/**
 	 *
 	 * @var Image_moo
@@ -53,13 +45,20 @@ class image_CRUD {
 	private $image_moo = null;
 
 	function __construct() {
-		$this->ci = &get_instance();
+		helper('url');
+		$this->db = \Config\Database::connect();
 	}
 
 	function set_table($table_name)
 	{
 		$this->table_name = $table_name;
 
+		return $this;
+	}
+
+	function where($key, $value = NULL, $escape = TRUE)
+	{
+		$this->where[] = array($key,$value,$escape);
 		return $this;
 	}
 
@@ -157,12 +156,12 @@ class image_CRUD {
 
 	public function set_css($css_file)
 	{
-		$this->css_files[sha1($css_file)] = base_url().$css_file;
+		$this->css_files[sha1($css_file)] = base_url($css_file);
 	}
 
 	public function set_js($js_file)
 	{
-		$this->js_files[sha1($js_file)] = base_url().$js_file;
+		$this->js_files[sha1($js_file)] = base_url($js_file);
 	}
 
 	protected function _library_view($view, $vars = array(), $return = FALSE)
@@ -174,7 +173,7 @@ class image_CRUD {
 		$ext = pathinfo($view, PATHINFO_EXTENSION);
 		$file = ($ext == '') ? $view.'.php' : $view;
 
-		$view_file = 'assets/image_crud/views/';
+		$view_file = FCPATH.'assets/image_crud/views/';
 
 		if (file_exists($view_file.$file))
 		{
@@ -184,7 +183,7 @@ class image_CRUD {
 
 		if ( ! $file_exists)
 		{
-			throw new Exception('Unable to load the requested file: '.$file, 16);
+			throw new \Exception('Unable to load the requested file: '.$file, 16);
 		}
 
 		extract($vars);
@@ -222,13 +221,17 @@ class image_CRUD {
 	 */
 	private function _load_language()
 	{
-		$ci = &get_instance();
-		$ci->config->load('image_crud');
 		if($this->language === null)
 		{
-			$this->language = strtolower($ci->config->item('image_crud_default_language'));
+			$this->language = 'english';
 		}
-		include($this->default_language_path.'/'.$this->language.'.php');
+
+		$lang = array();
+		$language_path = FCPATH.$this->default_language_path.'/'.$this->language.'.php';
+		if (!file_exists($language_path)) {
+			$language_path = FCPATH.$this->default_language_path.'/english.php';
+		}
+		include($language_path);
 
 		foreach($lang as $handle => $lang_string)
 			if(!isset($this->lang_strings[$handle]))
@@ -252,7 +255,7 @@ class image_CRUD {
 	 */
 	public function get_lang_string($handle)
 	{
-		return $this->lang_strings[$handle];
+		return $this->lang_strings[$handle] ?? $handle;
 	}
 
 	/**
@@ -280,49 +283,64 @@ class image_CRUD {
 	protected function _upload_file($upload_dir) {
 
 		$reg_exp = '/(\\.|\\/)(gif|jpeg|jpg|png)$/i';
+		$upload_path = rtrim(FCPATH . trim($upload_dir, '/\\'), '/\\') . DIRECTORY_SEPARATOR;
+
+		if (! is_dir($upload_path)) {
+			mkdir($upload_path, 0775, true);
+		}
+
+		if (! is_dir($upload_path) || ! is_writable($upload_path)) {
+			return false;
+		}
 
 		$options = array(
-				'upload_dir' 		=> $upload_dir.'/',
+				'upload_dir' 		=> $upload_path,
 				'param_name'		=> 'qqfile',
-				'upload_url'		=> base_url().$upload_dir.'/',
+				'upload_url'		=> rtrim(base_url($upload_dir), '/').'/',
 				'accept_file_types' => $reg_exp
 		);
 		$upload_handler = new ImageUploadHandler($options);
 		$uploader_response = $upload_handler->post();
 
-		if(is_array($uploader_response))
-		{
-			foreach($uploader_response as &$response)
-			{
-				unset($response->delete_url);
-				unset($response->delete_type);
-			}
-
-			$upload_response = $uploader_response[0];
-		} else {
-			$upload_response = false;
-		}
-
-		if (!empty($upload_response)) {
-			$ci = &get_instance();
-			$ci->load->library('image_moo');
-
-			$filename = $upload_response->name;
-
-			$path = $upload_dir.'/'.$filename;
-
-			/* Resizing to 1024 x 768 if its required */
-			list($width, $height) = getimagesize($path);
-			if($width > $this->max_width || $height > $this->max_height)
-			{
-				$ci->image_moo->load($path)->resize($this->max_width,$this->max_height)->save($path,true);
-			}
-			/* ------------------------------------- */
-
-			return $filename;
-		} else {
+		if (! is_array($uploader_response) || empty($uploader_response)) {
 			return false;
 		}
+
+		foreach($uploader_response as &$response)
+		{
+			unset($response->delete_url);
+			unset($response->delete_type);
+		}
+
+		$upload_response = $uploader_response[0] ?? null;
+
+		if (empty($upload_response) || ! empty($upload_response->error) || empty($upload_response->name)) {
+			return false;
+		}
+
+		$filename = $upload_response->name;
+		$path = $upload_path . $filename;
+
+		if (! is_file($path)) {
+			return false;
+		}
+
+		/* Resizing to 1024 x 768 if its required */
+		$image_size = @getimagesize($path);
+
+		if ($image_size === false) {
+			@unlink($path);
+			return false;
+		}
+
+		[$width, $height] = $image_size;
+		if($width > $this->max_width || $height > $this->max_height)
+		{
+			$this->image_moo->load($path)->resize($this->max_width,$this->max_height)->save($path,true);
+		}
+		/* ------------------------------------- */
+
+		return $filename;
 
     }
 
@@ -331,72 +349,109 @@ class image_CRUD {
     	$counter = 1;
 		foreach($post_array as $photo_id)
 		{
-			$this->ci->db->update($this->table_name, array($this->priority_field => $counter), array($this->primary_key => $photo_id));
+			$this->db->table($this->table_name)->where($this->primary_key, $photo_id)->update(array($this->priority_field => $counter));
 			$counter++;
 		}
     }
 
     protected function _insert_title($primary_key, $value)
     {
-		$this->ci->db->update($this->table_name, array($this->title_field => $value), array($this->primary_key => $primary_key));
+		$this->db->table($this->table_name)->where($this->primary_key, $primary_key)->update(array($this->title_field => $value));
     }
 
     protected function _insert_table($file_name, $relation_id = null)
     {
     	$insert = array($this->url_field => $file_name);
-    	if(!empty($relation_id))
+    	if(!empty($relation_id)) {
     		$insert[$this->relation_field] = $relation_id;
-    	$this->ci->db->insert($this->table_name, $insert);
+    	}
+    	$this->db->table($this->table_name)->insert($insert);
     }
 
     protected function _delete_file($id)
     {
-    	$this->ci->db->where($this->primary_key,$id);
-    	$result = $this->ci->db->get($this->table_name)->row();
+    	$result = $this->db->table($this->table_name)
+    		->where($this->primary_key, $id)
+    		->get()
+    		->getRow();
 
-    	unlink( $this->image_path.'/'.$result->{$this->url_field} );
-    	unlink( $this->image_path.'/'.$this->thumbnail_prefix.$result->{$this->url_field} );
+    	if (!$result) {
+    		return;
+    	}
 
-    	$this->ci->db->delete($this->table_name, array($this->primary_key => $id));
+    	$image = FCPATH.$this->image_path.'/'.$result->{$this->url_field};
+    	$thumb = FCPATH.$this->image_path.'/'.$this->thumbnail_prefix.$result->{$this->url_field};
+
+    	if (is_file($image)) {
+    		unlink($image);
+    	}
+
+    	if (is_file($thumb)) {
+    		unlink($thumb);
+    	}
+
+    	$this->db->table($this->table_name)
+    		->where($this->primary_key, $id)
+    		->delete();
     }
 
     protected function _get_delete_url($value)
     {
-    	$rsegments_array = $this->ci->uri->rsegment_array();
+    	$rsegments_array = $this->_segment_array();
     	return site_url($rsegments_array[1].'/'.$rsegments_array[2].'/delete_file/'.$value);
     }
 
     protected function _get_photos($relation_value = null)
     {
+    	$builder = $this->db->table($this->table_name);
+
     	if(!empty($this->priority_field))
     	{
-    		$this->ci->db->order_by($this->priority_field);
+    		$builder->orderBy($this->priority_field);
     	}
+
+    	if(!empty($this->where)) {
+			foreach($this->where as $where) {
+				$builder->where($where[0],$where[1],$where[2]);
+			}
+    	}
+
     	if(!empty($relation_value))
     	{
-    		$this->ci->db->where($this->relation_field, $relation_value);
+    		$builder->where($this->relation_field, $relation_value);
     	}
-    	$results = $this->ci->db->get($this->table_name)->result();
 
-    	$thumbnail_url = !empty($this->thumbnail_path) ? $this->thumbnail_path : $this->image_path;
+    	$results = $builder->get()->getResult();
+    	$final_results = array();
 
     	foreach($results as $num => $row)
     	{
-			if (!file_exists($this->image_path.'/'.$this->thumbnail_prefix.$row->{$this->url_field})) {
-				$this->_create_thumbnail($this->image_path.'/'.$row->{$this->url_field}, $this->image_path.'/'.$this->thumbnail_prefix.$row->{$this->url_field});
+    		$image_filename = $row->{$this->url_field};
+
+    		if (empty($image_filename)) {
+    			continue;
+    		}
+
+			$image_path = FCPATH.$this->image_path.'/'.$image_filename;
+			$thumbnail_path = FCPATH.$this->image_path.'/'.$this->thumbnail_prefix.$image_filename;
+
+			if (is_file($image_path) && !file_exists($thumbnail_path)) {
+				$this->_create_thumbnail($image_path, $thumbnail_path);
 			}
 
-    		$results[$num]->image_url = base_url().$this->image_path.'/'.$row->{$this->url_field};
-    		$results[$num]->thumbnail_url = base_url().$this->image_path.'/'.$this->thumbnail_prefix.$row->{$this->url_field};
+    		$results[$num]->image_url = base_url($this->image_path . '/' . $image_filename);
+    		$results[$num]->thumbnail_url = base_url($this->image_path . '/' . $this->thumbnail_prefix . $image_filename);
     		$results[$num]->delete_url = $this->_get_delete_url($row->{$this->primary_key});
+
+    		$final_results[] = $results[$num];
     	}
 
-    	return $results;
+    	return $final_results;
     }
 
 	protected function _convert_foreign_characters($str_i)
 	{
-		include('assets/image_crud/config/translit_chars.php');
+		include(FCPATH.'assets/image_crud/config/translit_chars.php');
 		if ( ! isset($translit_characters))
 		{
 			return $str_i;
@@ -404,17 +459,132 @@ class image_CRUD {
 		return preg_replace(array_keys($translit_characters), array_values($translit_characters), $str_i);
 	}
 
-	protected function _create_thumbnail($image_path, $thumbnail_path)
+	protected function _create_thumbnail($image_path, $thumbnail_path): bool
 	{
-		$this->image_moo
-			->load($image_path)
-			->resize_crop(90,60)
-			->save($thumbnail_path,true);
+		if (! is_file($image_path)) {
+			log_message('error', 'ImageCrud thumbnail source missing: ' . $image_path);
+			return false;
+		}
+
+		$thumbnail_dir = dirname($thumbnail_path);
+		if (! is_dir($thumbnail_dir)) {
+			mkdir($thumbnail_dir, 0775, true);
+		}
+
+		if (! is_dir($thumbnail_dir) || ! is_writable($thumbnail_dir)) {
+			log_message('error', 'ImageCrud thumbnail directory not writable: ' . $thumbnail_dir);
+			return false;
+		}
+
+		$image_info = @getimagesize($image_path);
+		if ($image_info === false) {
+			log_message('error', 'ImageCrud thumbnail source is not an image: ' . $image_path);
+			return false;
+		}
+
+		[$source_width, $source_height] = $image_info;
+		$mime = $image_info['mime'] ?? '';
+
+		$source = match ($mime) {
+			'image/jpeg' => function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($image_path) : false,
+			'image/png'  => function_exists('imagecreatefrompng') ? @imagecreatefrompng($image_path) : false,
+			'image/gif'  => function_exists('imagecreatefromgif') ? @imagecreatefromgif($image_path) : false,
+			'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($image_path) : false,
+			default      => false,
+		};
+
+		if (! $source) {
+			log_message('error', 'ImageCrud could not create GD source image: ' . $image_path);
+			return false;
+		}
+
+		$thumb_width = 90;
+		$thumb_height = 60;
+		$thumb = imagecreatetruecolor($thumb_width, $thumb_height);
+
+		if (! $thumb) {
+			@imagedestroy($source);
+			log_message('error', 'ImageCrud could not create thumbnail canvas.');
+			return false;
+		}
+
+		// Preserve transparency for PNG/GIF/WebP.
+		imagealphablending($thumb, false);
+		imagesavealpha($thumb, true);
+		$transparent = imagecolorallocatealpha($thumb, 0, 0, 0, 127);
+		imagefilledrectangle($thumb, 0, 0, $thumb_width, $thumb_height, $transparent);
+
+		$source_ratio = $source_width / $source_height;
+		$thumb_ratio = $thumb_width / $thumb_height;
+
+		if ($source_ratio > $thumb_ratio) {
+			$crop_height = $source_height;
+			$crop_width = (int) round($source_height * $thumb_ratio);
+			$src_x = (int) floor(($source_width - $crop_width) / 2);
+			$src_y = 0;
+		} else {
+			$crop_width = $source_width;
+			$crop_height = (int) round($source_width / $thumb_ratio);
+			$src_x = 0;
+			$src_y = (int) floor(($source_height - $crop_height) / 2);
+		}
+
+		$copied = imagecopyresampled(
+			$thumb,
+			$source,
+			0,
+			0,
+			$src_x,
+			$src_y,
+			$thumb_width,
+			$thumb_height,
+			$crop_width,
+			$crop_height
+		);
+
+		if (! $copied) {
+			@imagedestroy($source);
+			@imagedestroy($thumb);
+			log_message('error', 'ImageCrud thumbnail resample failed: ' . $image_path);
+			return false;
+		}
+
+		$extension = strtolower(pathinfo($thumbnail_path, PATHINFO_EXTENSION));
+		$saved = match ($extension) {
+			'jpg', 'jpeg' => imagejpeg($thumb, $thumbnail_path, 90),
+			'png'         => imagepng($thumb, $thumbnail_path),
+			'gif'         => imagegif($thumb, $thumbnail_path),
+			'webp'        => function_exists('imagewebp') ? imagewebp($thumb, $thumbnail_path, 90) : false,
+			default       => false,
+		};
+
+		@imagedestroy($source);
+		@imagedestroy($thumb);
+
+		if (! $saved || ! is_file($thumbnail_path)) {
+			log_message('error', 'ImageCrud thumbnail save failed: ' . $thumbnail_path);
+			return false;
+		}
+
+		return true;
+	}
+
+
+	protected function _segment_array()
+	{
+		$segments = service('request')->getUri()->getSegments();
+		$rsegments_array = array();
+
+		foreach ($segments as $index => $segment) {
+			$rsegments_array[$index + 1] = $segment;
+		}
+
+		return $rsegments_array;
 	}
 
 	protected function getState()
 	{
-		$rsegments_array = $this->ci->uri->rsegment_array();
+		$rsegments_array = $this->_segment_array();
 
 		if(isset($rsegments_array[3]) && is_numeric($rsegments_array[3]))
 		{
@@ -452,7 +622,13 @@ class image_CRUD {
 			#region Just rename my file
 				$new_file_name = '';
 				//$old_file_name = $this->_to_greeklish($_GET['qqfile']);
-				$old_file_name = $this->_convert_foreign_characters($_GET['qqfile']);
+				$request = service('request');
+				$old_file_name = $request->getGetPost('qqfile')
+					?? ($_FILES['qqfile']['name'] ?? null)
+					?? ($_SERVER['HTTP_X_FILE_NAME'] ?? null)
+					?? ($_POST['qqfilename'] ?? null)
+					?? 'uploaded-image';
+				$old_file_name = $this->_convert_foreign_characters((string) $old_file_name);
 				$max = strlen($old_file_name);
 				for($i=0; $i< $max;$i++)
 				{
@@ -495,10 +671,7 @@ class image_CRUD {
 
 	function render()
 	{
-		$ci = &get_instance();
 		$this->_load_language();
-		$ci->load->helper('url');
-		$ci->load->library('Image_moo');
 		$this->image_moo = new Image_moo();
 
 		$state_info = $this->getState();
@@ -533,15 +706,23 @@ class image_CRUD {
 				case 'upload_file':
 					if($this->unset_upload)
 					{
-						throw new Exception('This user is not allowed to do this operation', 1);
+						throw new \Exception('This user is not allowed to do this operation', 1);
 						die();
 					}
 
 					$file_name = $this->_upload_file( $this->image_path);
 
 					if ($file_name !== false) {
-						$this->_create_thumbnail( $this->image_path.'/'.$file_name , $this->image_path.'/'.$this->thumbnail_prefix.$file_name );
-						$this->_insert_table($file_name, $state_info->relation_value);
+						$image_path = FCPATH.$this->image_path.'/'.$file_name;
+						$thumbnail_path = FCPATH.$this->image_path.'/'.$this->thumbnail_prefix.$file_name;
+
+						$thumb_created = $this->_create_thumbnail($image_path, $thumbnail_path);
+						if (! $thumb_created) {
+							log_message('error', 'ImageCrud upload succeeded but thumbnail failed for: ' . $file_name);
+						}
+
+						$relation_value = property_exists($state_info, 'relation_value') ? $state_info->relation_value : null;
+						$this->_insert_table($file_name, $relation_value);
 
 						$result = true;
 					} else {
@@ -558,25 +739,26 @@ class image_CRUD {
 					@ob_end_clean();
 					if($this->unset_delete)
 					{
-						throw new Exception('This user is not allowed to do this operation', 1);
+						throw new \Exception('This user is not allowed to do this operation', 1);
 						die();
 					}
 					$id = $state_info->id;
 
 					$this->_delete_file($id);
 
-					redirect($_SERVER['HTTP_REFERER']);
+					echo json_encode((object)array('success' => true));
+					die();
 				break;
 
 				case 'ordering':
 					@ob_end_clean();
-					$this->_changing_priority($_POST['photos']);
+					$this->_changing_priority($_POST['photos'] ?? array());
 					die();
 				break;
 
 				case 'insert_title':
 					@ob_end_clean();
-					$this->_insert_title($_POST['primary_key'],$_POST['value']);
+					$this->_insert_title($_POST['primary_key'] ?? null,$_POST['value'] ?? '');
 					die();
 				break;
 			}
@@ -585,8 +767,6 @@ class image_CRUD {
 	}
 
 }
-
-
 
 /*
  * jQuery File Upload Plugin PHP Example 5.5
@@ -662,7 +842,7 @@ class ImageUploadHandler
 	private function get_file_object($file_name) {
 		$file_path = $this->options['upload_dir'].$file_name;
 		if (is_file($file_path) && $file_name[0] !== '.') {
-			$file = new stdClass();
+			$file = new \stdClass();
 			$file->name = $file_name;
 			$file->size = filesize($file_path);
 			$file->url = $this->options['upload_url'].rawurlencode($file->name);
@@ -750,7 +930,7 @@ class ImageUploadHandler
 		if ($uploaded_file && is_uploaded_file($uploaded_file)) {
 			$file_size = filesize($uploaded_file);
 		} else {
-			$file_size = $_SERVER['CONTENT_LENGTH'];
+			$file_size = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
 		}
 
 		if ($this->options['max_file_size'] && (
@@ -815,7 +995,20 @@ class ImageUploadHandler
 	}
 
 	private function handle_file_upload($uploaded_file, $name, $size, $type, $error) {
-		$file = new stdClass();
+		$file = new \stdClass();
+
+		if (! is_dir($this->options['upload_dir'])) {
+			mkdir($this->options['upload_dir'], 0775, true);
+		}
+
+		if (! is_writable($this->options['upload_dir'])) {
+			$file->name = $name;
+			$file->size = 0;
+			$file->type = $type;
+			$file->error = 'uploadDirNotWritable';
+			return $file;
+		}
+
 		$file->name = $this->trim_file_name($name, $type);
 		$file->size = intval($size);
 		$file->type = $type;
@@ -834,16 +1027,29 @@ class ImageUploadHandler
 							FILE_APPEND
 					);
 				} else {
-					move_uploaded_file($uploaded_file, $file_path);
+					if (! move_uploaded_file($uploaded_file, $file_path)) {
+						$file->error = 'moveUploadedFileFailed';
+						return $file;
+					}
 				}
 			} else {
 				// Non-multipart uploads (PUT method support)
-				file_put_contents(
+				$written = file_put_contents(
 						$file_path,
 						fopen('php://input', 'r'),
 						$append_file ? FILE_APPEND : 0
 				);
+
+				if ($written === false) {
+					$file->error = 'writeInputFailed';
+					return $file;
+				}
 			}
+			if (! is_file($file_path)) {
+				$file->error = 'uploadFileMissing';
+				return $file;
+			}
+
 			$file_size = filesize($file_path);
 			if ($file_size === $file->size) {
 				if ($this->options['orient_image']) {

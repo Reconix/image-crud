@@ -1,10 +1,10 @@
-<?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
+<?php defined('APPPATH') || exit('No direct script access allowed');
 /*
 | -------------------------------------------------------------------
 | Transliteration characters
 | -------------------------------------------------------------------
-| This file based on ./application/config/foreign_chars.php file 
-| of Codeigniter's Framework and contains an array of foreign 
+| This file based on ./application/config/foreign_chars.php file
+| of Codeigniter's Framework and contains an array of foreign
 | characters for transliteration conversion used by image CRUD library
 |
 */

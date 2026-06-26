@@ -1,4 +1,4 @@
-<?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
+<?php defined('APPPATH') || exit('No direct script access allowed');
 
 $lang['upload_button'] = 'Upload files here';
 $lang['upload-drop-area'] = 'Drop files here to upload';
