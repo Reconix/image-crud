@@ -1,5 +1,8 @@
 Image CRUD
 ==========
+Tested with
+PHP 8.5.6
+CI 4.7.3
 
 Other Branches
 ===============
